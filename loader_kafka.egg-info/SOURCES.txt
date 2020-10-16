@@ -1,0 +1,9 @@
+README.md
+setup.cfg
+setup.py
+loader_kafka.egg-info/PKG-INFO
+loader_kafka.egg-info/SOURCES.txt
+loader_kafka.egg-info/dependency_links.txt
+loader_kafka.egg-info/entry_points.txt
+loader_kafka.egg-info/requires.txt
+loader_kafka.egg-info/top_level.txt

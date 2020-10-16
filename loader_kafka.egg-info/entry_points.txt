@@ -1,0 +1,4 @@
+
+    [console_scripts]
+    loader-kafka=loader_kafka:main
+    

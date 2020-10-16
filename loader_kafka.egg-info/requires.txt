@@ -1,0 +1,5 @@
+jsonschema==2.6.0
+singer-python==2.1.4
+requests>=2.4.2
+python-dotenv
+kafka-python
