@@ -4,7 +4,7 @@ from setuptools import setup
 setup(
     name="loader-kafka",
     version="0.1.0",
-    description="Meltano loader for extracting data from a Kafka",
+    description="Meltano loader for publishing data to a Kafka topic",
     author="Qualytics",
     classifiers=["Programming Language :: Python :: 3 :: Only"],
     install_requires=['jsonschema==2.6.0',
