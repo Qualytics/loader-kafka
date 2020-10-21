@@ -6,7 +6,7 @@ following the [Singer spec](https://github.com/singer-io/getting-started/blob/ma
 ## Settings Requirements
 
 ```
-settings: kafka_brokers, topic
+settings: kafka_brokers, kafka_topic
 
 ```
 
