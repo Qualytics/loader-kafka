@@ -21,10 +21,21 @@ def persist_messages(messages, config):
     unique_per_run = str(uuid.uuid1())
 
     for idx, message in enumerate(messages):
+        if 'STATE' in message:
+            o = json.loads(message)
+            if o['type'] == 'STATE':
+                emit_state(o['value'])
+
         message_bytes = bytes(message, encoding='utf-8')
         key_bytes = bytes((unique_per_run+"-"+str(idx)), encoding='utf-8')
         producer.send(config['kafka_topic'], value=message_bytes, key=key_bytes)
 
+def emit_state(state):
+    if state is not None:
+        line = json.dumps(state)
+        logger.debug('Emitting state {}'.format(line))
+        sys.stdout.write("{}\n".format(line))
+        sys.stdout.flush()
 
 def main():
     logger.info("in target")
