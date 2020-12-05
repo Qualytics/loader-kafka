@@ -17,7 +17,7 @@ from kafka import KafkaProducer
 logger = singer.get_logger()
 
 def persist_messages(messages, config):
-    producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'])
+    producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'],retries=3)
     unique_per_run = str(uuid.uuid1())
 
     for idx, message in enumerate(messages):
@@ -29,7 +29,7 @@ def persist_messages(messages, config):
         message_bytes = bytes(message, encoding='utf-8')
         key_bytes = bytes((unique_per_run+"-"+str(idx)), encoding='utf-8')
         try:
-            producer.send(config['kafka_topic'], value=message_bytes, key=key_bytes, retries=3)
+            producer.send(config['kafka_topic'], value=message_bytes, key=key_bytes)
         except Exception as err:
             logger.error(f"Unable to send a record to kafka:",err)
             raise err
