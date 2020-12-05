@@ -28,7 +28,11 @@ def persist_messages(messages, config):
 
         message_bytes = bytes(message, encoding='utf-8')
         key_bytes = bytes((unique_per_run+"-"+str(idx)), encoding='utf-8')
-        producer.send(config['kafka_topic'], value=message_bytes, key=key_bytes)
+        try:
+            producer.send(config['kafka_topic'], value=message_bytes, key=key_bytes, retries=3)
+        except Exception as err:
+            logger.error(f"Unable to send a record to kafka:",err)
+            raise err
 
 def emit_state(state):
     if state is not None:
