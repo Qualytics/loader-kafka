@@ -2,22 +2,29 @@
 import argparse
 import io
 import json
-import os
 import sys
-from datetime import datetime
 import singer
 import uuid
-from dotenv import load_dotenv, find_dotenv
-import time
-import random
-import kafka
-from kafka import KafkaProducer
+from kafka import KafkaProducer, KafkaClient
+from kafka.admin import KafkaAdminClient, NewTopic
 
 
 logger = singer.get_logger()
 
 def persist_messages(messages, config):
-    producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'],retries=3)
+
+    logger.info("Verifying target topic existence.")
+    kafka_client = KafkaClient(bootstrap_servers=config['kafka_brokers'],client_id='loader-kafka')
+    if config['kafka_topic'] not in kafka_client.topic_partitions:
+        logger.info(f"Creating topic ${config['kafka_topic']}")
+        admin_client = KafkaAdminClient(
+            bootstrap_servers=config['kafka_brokers'],
+            client_id='loader-kafka'
+        )
+        topic_list = [NewTopic(name=config['kafka_topic'], num_partitions=config.get('topic_partitions', 1), replication_factor=config.get('topic_replication', 1))]
+        admin_client.create_topics(new_topics=topic_list, validate_only=False)
+
+    producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'], retries=3)
     unique_per_run = str(uuid.uuid1())
 
     for idx, message in enumerate(messages):
