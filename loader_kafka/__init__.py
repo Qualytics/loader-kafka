@@ -5,7 +5,7 @@ import json
 import sys
 import singer
 import uuid
-from kafka import KafkaProducer, KafkaClient
+from kafka import KafkaProducer, KafkaConsumer
 from kafka.admin import KafkaAdminClient, NewTopic
 
 
@@ -14,8 +14,8 @@ logger = singer.get_logger()
 def persist_messages(messages, config):
 
     logger.info("Verifying target topic existence.")
-    kafka_client = KafkaClient(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
-    if config['kafka_topic'] not in kafka_client.topic_partitions:
+    kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
+    if config['kafka_topic'] not in kafka_consumer.topics():
         logger.info(f"Creating topic ${config['kafka_topic']}")
         admin_client = KafkaAdminClient(
             bootstrap_servers=config['kafka_brokers'],
