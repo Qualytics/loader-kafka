@@ -8,7 +8,7 @@ setup(
     author="Qualytics",
     classifiers=["Programming Language :: Python :: 3 :: Only"],
     install_requires=['jsonschema==2.6.0',
-                      'singer-python==2.1.4', 'requests>=2.4.2', 'python-dotenv','kafka-python'],
+                      'singer-python==2.1.4', 'kafka-python'],
     entry_points="""
     [console_scripts]
     loader-kafka=loader_kafka:main
