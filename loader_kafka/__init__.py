@@ -16,7 +16,7 @@ def persist_messages(messages, config):
     logger.info("Verifying target topic existence.")
     kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
     if config['kafka_topic'] not in kafka_consumer.topics():
-        logger.info(f"Creating topic ${config['kafka_topic']}")
+        logger.info(f"Creating topic {config['kafka_topic']}")
         admin_client = KafkaAdminClient(
             bootstrap_servers=config['kafka_brokers'],
             client_id='loader-kafka'
