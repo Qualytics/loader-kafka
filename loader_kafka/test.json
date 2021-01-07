@@ -1,0 +1,32 @@
+{
+    "type": "record",
+    "name": "stest",
+    "namespace": "stest.avro",
+    "fields": [{
+        "type": ["null", "string"],
+        "name": "name",
+        "default": null
+    }, {
+        "type": ["null", "int"],
+        "name": "number",
+        "default": 0
+    }, {
+        "type": ["null", "string"],
+        "name": "_smart_source_bucket",
+        "default": null
+    }, {
+        "type": ["null", "string"],
+        "name": "_smart_source_file",
+        "default": null
+    }, {
+        "type": ["null", "int"],
+        "name": "_smart_source_lineno",
+        "default": 0
+    }]
+} {
+    'name': 'Sophie',
+    'number': 1,
+    '_smart_source_bucket': 'file:///Users/sophiekeller/Desktop/qualytics/spreadsheets',
+    '_smart_source_file': 'qualytics.csv',
+    '_smart_source_lineno': 2
+}
