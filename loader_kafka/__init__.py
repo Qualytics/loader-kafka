@@ -11,7 +11,7 @@ from kafka import KafkaProducer, KafkaConsumer
 from kafka.admin import KafkaAdminClient, NewTopic
 from confluent_kafka import avro
 from confluent_kafka.avro import AvroProducer
-
+import loader_kafka.conversion as conversion
 
 logger = singer.get_logger()
 
@@ -39,6 +39,7 @@ def _flatten_avsc(a, parent_key='', flatten_delimiter='__'):
         # figure out selected
         if True or (v.get("selected") == "true" or v.get("selected") == True or v.get("inclusion") == "automatic" or parent_key)\
                 and v.get("inclusion") != "unsupported":
+            logger.info(v)
             new_key = parent_key + flatten_delimiter + k if parent_key else k
             type_list = ["null"]
             default_val = None
@@ -136,6 +137,29 @@ def persist_messages(messages, config):
             avroProducer.flush()
 
         if 'STATE' in message:
+            logger.info("in state")
+            props_schema = conversion.generate_schema([o])
+            logger.info(props_schema)
+            # inferred_schema = {
+            #     'type': 'object',
+            #     'properties': props_schema
+            # }
+            # logger.info(inferred_schema)
+
+            # schema_date_fields[stream] = []
+            avsc_fields, discard = _flatten_avsc(a=props_schema, flatten_delimiter="__")
+
+            avsc_dict = {"namespace": "{0}.avro".format("state"),
+                         "type": "record",
+                         "name": "{0}".format("state"),
+                         "fields": list(avsc_fields)}
+
+            value_schema = avro.loads(json.dumps(avsc_dict))
+            # logger.info(o["value"])
+            avroProducer.produce(topic=config['kafka_topic'], value=o, value_schema = value_schema)
+            avroProducer.flush()
+
+
             if o['type'] == 'STATE':
                 emit_state(o['value'])
         if 'SCHEMA' in message:
