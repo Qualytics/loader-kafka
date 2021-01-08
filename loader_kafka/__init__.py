@@ -7,6 +7,7 @@ import singer
 import uuid
 import re
 import collections
+import dateutil
 from kafka import KafkaProducer, KafkaConsumer
 from kafka.admin import KafkaAdminClient, NewTopic
 from confluent_kafka import avro
@@ -39,7 +40,7 @@ def _flatten_avsc(a, parent_key='', flatten_delimiter='__'):
         # figure out selected
         if True or (v.get("selected") == "true" or v.get("selected") == True or v.get("inclusion") == "automatic" or parent_key)\
                 and v.get("inclusion") != "unsupported":
-            logger.info(v)
+            # logger.info(v)
             new_key = parent_key + flatten_delimiter + k if parent_key else k
             type_list = ["null"]
             default_val = None
@@ -138,16 +139,19 @@ def persist_messages(messages, config):
 
         if 'STATE' in message:
             logger.info("in state")
-            props_schema = conversion.generate_schema([o])
-            logger.info(props_schema)
+            props_schema = conversion.infer_schemas(o)["properties"]
             # inferred_schema = {
             #     'type': 'object',
             #     'properties': props_schema
             # }
             # logger.info(inferred_schema)
 
-            # schema_date_fields[stream] = []
-            avsc_fields, discard = _flatten_avsc(a=props_schema, flatten_delimiter="__")
+            schema_date_fields["state"] = []
+            # logger.info("props")
+            # logger.info(props_schema)
+            avsc_fields, schema_date_fields["state"] = _flatten_avsc(a=props_schema, flatten_delimiter="__")
+            # logger.info("fields")
+            # logger.info(avsc_fields)
 
             avsc_dict = {"namespace": "{0}.avro".format("state"),
                          "type": "record",
@@ -155,8 +159,18 @@ def persist_messages(messages, config):
                          "fields": list(avsc_fields)}
 
             value_schema = avro.loads(json.dumps(avsc_dict))
-            # logger.info(o["value"])
-            avroProducer.produce(topic=config['kafka_topic'], value=o, value_schema = value_schema)
+            logger.info(o["value"])
+            # logger.info(value_schema)
+            logger.info(schema_date_fields["state"])
+            flattened_value = flatten(o['value'], flatten_delimiter="__")
+            for df_iter in schema_date_fields["state"]:
+                if flattened_value[df_iter] is not None:
+                    dt_value = dateutil.parser.parse(flattened_value[df_iter])
+                    flattened_value[df_iter] = int(dt_value.strftime("%s"))
+            logger.info(flattened_value)
+
+            logger.info(flattened_value)
+            avroProducer.produce(topic=config["state_topic"], value=flattened_value, value_schema = value_schema)
             avroProducer.flush()
 
 
