@@ -27,7 +27,7 @@ def flatten(d, parent_key='', flatten_delimiter='__'):
     return dict(items)
 
 
-def _flatten_avsc(a, parent_key='', flatten_delimiter='__'):
+def _avsc(a):
     field_list = []
     dates_list = []
     type_switcher = {"integer": "int",
@@ -41,7 +41,8 @@ def _flatten_avsc(a, parent_key='', flatten_delimiter='__'):
         if True or (v.get("selected") == "true" or v.get("selected") == True or v.get("inclusion") == "automatic" or parent_key)\
                 and v.get("inclusion") != "unsupported":
             # logger.info(v)
-            new_key = parent_key + flatten_delimiter + k if parent_key else k
+            #new_key = parent_key + flatten_delimiter + k if parent_key else k
+            new_key = k
             type_list = ["null"]
             default_val = None
             types = [v.get("type")] if isinstance(v.get("type"), str) else v.get("type")
@@ -58,14 +59,19 @@ def _flatten_avsc(a, parent_key='', flatten_delimiter='__'):
 
             for t in types:
                 if t == "object" or t == "dict":
-                    recurs_avsc, recurs_dates = _flatten_avsc(v["properties"],
-                                                              parent_key=new_key,
-                                                              flatten_delimiter=flatten_delimiter)
-                    field_list.extend(recurs_avsc)
-                    dates_list.extend(recurs_dates)
+                    # recurs_avsc, recurs_dates = _flatten_avsc(v["properties"],
+                    #                                           parent_key=new_key,
+                    #                                           flatten_delimiter=flatten_delimiter)
+                    # field_list.extend(recurs_avsc)
+                    # dates_list.extend(recurs_dates)
                     # Set a default element of string
-                    type_list.append(type_switcher.get("string", "string"))
-                    default_val = default_switcher.get("string", None)
+                    new_dict = { "type": "record",
+                                 "name": "{0}".format(k),
+                                 "fields": _avsc(v["properties"], parent_key=new_key, flatten_delimiter=flatten_delimiter)})
+                    type_list.append(new_dict)
+                    #type_list.append(type_switcher.get("string", "string"))
+                    #default_val = default_switcher.get("string", None)
+                    default_val = {}
                 elif t == "array":
                     type_list.append(type_switcher.get("string", "string"))
                     default_val = default_switcher.get("string", None)
@@ -132,9 +138,9 @@ def persist_messages(messages, config):
                     dt_value = dateutil.parser.parse(o['record'][df_iter])
                     o['record'][df_iter] = int(dt_value.strftime("%s"))
 
-            flattened_record = flatten(o['record'], flatten_delimiter="__")
+            #flattened_record = flatten(o['record'], flatten_delimiter="__")
 
-            avroProducer.produce(topic=config['kafka_topic'], value=flattened_record, value_schema = value_schema)
+            avroProducer.produce(topic=config['kafka_topic'], value=o['record'], value_schema = value_schema)
             avroProducer.flush()
 
         if 'STATE' in message:
@@ -149,7 +155,7 @@ def persist_messages(messages, config):
             schema_date_fields["state"] = []
             # logger.info("props")
             # logger.info(props_schema)
-            avsc_fields, schema_date_fields["state"] = _flatten_avsc(a=props_schema, flatten_delimiter="__")
+            avsc_fields, schema_date_fields["state"] = _avsc(a=props_schema)
             # logger.info("fields")
             # logger.info(avsc_fields)
 
@@ -162,15 +168,16 @@ def persist_messages(messages, config):
             logger.info(o["value"])
             # logger.info(value_schema)
             logger.info(schema_date_fields["state"])
-            flattened_value = flatten(o['value'], flatten_delimiter="__")
+            #flattened_value = flatten(o['value'], flatten_delimiter="__")
+            value = o['value']
             for df_iter in schema_date_fields["state"]:
-                if flattened_value[df_iter] is not None:
-                    dt_value = dateutil.parser.parse(flattened_value[df_iter])
-                    flattened_value[df_iter] = int(dt_value.strftime("%s"))
-            logger.info(flattened_value)
+                if value[df_iter] is not None:
+                    dt_value = dateutil.parser.parse(value[df_iter])
+                    value[df_iter] = int(dt_value.strftime("%s"))
+            logger.info(value)
 
-            logger.info(flattened_value)
-            avroProducer.produce(topic=config["state_topic"], value=flattened_value, value_schema = value_schema)
+
+            avroProducer.produce(topic=config["state_topic"], value=value, value_schema = value_schema)
             avroProducer.flush()
 
 
