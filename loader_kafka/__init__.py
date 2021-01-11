@@ -45,6 +45,7 @@ def _avsc(a):
             new_key = k
             type_list = ["null"]
             default_val = None
+            type_dict = None
             types = [v.get("type")] if isinstance(v.get("type"), str) else v.get("type")
             # Check for date-time formatConvert & legacy "anyOf" and empty field types conversion to string
             if v.get("type") is None:
@@ -65,10 +66,16 @@ def _avsc(a):
                     # field_list.extend(recurs_avsc)
                     # dates_list.extend(recurs_dates)
                     # Set a default element of string
-                    new_dict = { "type": "record",
+                    props_list, recurs_dates = _avsc(v["properties"])
+                    type_dict = { "type": "record",
                                  "name": "{0}".format(k),
-                                 "fields": _avsc(v["properties"], parent_key=new_key, flatten_delimiter=flatten_delimiter)})
-                    type_list.append(new_dict)
+                                 "fields": list(props_list)
+                                 }
+                    dates_list = dates_list + recurs_dates
+                    # logger.info("type")
+                    # logger.info(v)
+                    # logger.info(type_dict)
+                    # type_list.append(new_dict)
                     #type_list.append(type_switcher.get("string", "string"))
                     #default_val = default_switcher.get("string", None)
                     default_val = {}
@@ -88,8 +95,10 @@ def _avsc(a):
             if len(types) > 2:
                 default_val = None
 
-            new_element = {"name": new_key, "type": type_list, "default": default_val}
-
+            if t == "object" or t == "dict":
+                new_element = {"name": new_key, "type": type_dict, "default": default_val}
+            else:
+                new_element = {"name": new_key, "type": type_list, "default": default_val}
             # Handle all disallowed avro characters in the field name with alias
             pattern = r"[^A-Za-z0-9_]"
             if re.search(pattern, k):
@@ -100,23 +109,33 @@ def _avsc(a):
 
     return list(field_list), list(dates_list)
 
+def convert_dates(date_fields, record):
+    for df_iter in date_fields:
+        if df_iter in record and record[df_iter] is not None:
+            dt_value = dateutil.parser.parse(record[df_iter])
+            record[df_iter] = int(dt_value.strftime("%s"))
+    for k,v in record.items():
+        if type(v) == dict:
+            convert_dates(date_fields, v)
+
+
 def persist_messages(messages, config):
     schema_date_fields = {}
     avro_files = {}
 
     logger.info("Verifying target topic existence.")
-    kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
-    if config['kafka_topic'] not in kafka_consumer.topics():
-        logger.info(f"Creating topic {config['kafka_topic']}")
-        admin_client = KafkaAdminClient(
-            bootstrap_servers=config['kafka_brokers'],
-            client_id='loader-kafka'
-        )
-        topic_list = [NewTopic(name=config['kafka_topic'], num_partitions=config.get('topic_partitions', 1), replication_factor=config.get('topic_replication', 1))]
-        admin_client.create_topics(new_topics=topic_list, validate_only=False)
-
-    producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'], retries=3)
-    unique_per_run = str(uuid.uuid1())
+    # kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
+    # if config['kafka_topic'] not in kafka_consumer.topics():
+    #     logger.info(f"Creating topic {config['kafka_topic']}")
+    #     admin_client = KafkaAdminClient(
+    #         bootstrap_servers=config['kafka_brokers'],
+    #         client_id='loader-kafka'
+    #     )
+    #     topic_list = [NewTopic(name=config['kafka_topic'], num_partitions=config.get('topic_partitions', 1), replication_factor=config.get('topic_replication', 1))]
+    #     admin_client.create_topics(new_topics=topic_list, validate_only=False)
+    #
+    # producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'], retries=3)
+    # unique_per_run = str(uuid.uuid1())
 
     avroProducer = AvroProducer({
     'bootstrap.servers': config['kafka_brokers'],
@@ -128,24 +147,26 @@ def persist_messages(messages, config):
 
     for idx, message in enumerate(messages):
         o = json.loads(message)
+        logger.info(o)
         if 'RECORD' in message:
             if 'stream' not in o:
                 raise Exception("Line is missing required key 'stream': {}".format(line))
 
             # Convert date fields in the record
-            for df_iter in schema_date_fields[o['stream']]:
-                if o['record'][df_iter] is not None:
-                    dt_value = dateutil.parser.parse(o['record'][df_iter])
-                    o['record'][df_iter] = int(dt_value.strftime("%s"))
+
+            convert_dates(schema_date_fields[o['stream']], o['record'])
 
             #flattened_record = flatten(o['record'], flatten_delimiter="__")
-
-            avroProducer.produce(topic=config['kafka_topic'], value=o['record'], value_schema = value_schema)
+            topic_name = config["topic_prefix"] + "." + o["stream"] + "." + "records"
+            logger.info(topic_name)
+            avroProducer.produce(topic=topic_name, value=o['record'], value_schema = value_schema)
             avroProducer.flush()
 
         if 'STATE' in message:
             logger.info("in state")
+            # logger.info(conversion.infer_schemas(o))
             props_schema = conversion.infer_schemas(o)["properties"]
+            # logger.info(props_schema)
             # inferred_schema = {
             #     'type': 'object',
             #     'properties': props_schema
@@ -158,26 +179,24 @@ def persist_messages(messages, config):
             avsc_fields, schema_date_fields["state"] = _avsc(a=props_schema)
             # logger.info("fields")
             # logger.info(avsc_fields)
-
+            # logger.info(avsc_fields)
             avsc_dict = {"namespace": "{0}.avro".format("state"),
                          "type": "record",
                          "name": "{0}".format("state"),
                          "fields": list(avsc_fields)}
 
             value_schema = avro.loads(json.dumps(avsc_dict))
-            logger.info(o["value"])
+            # logger.info(o["value"])
             # logger.info(value_schema)
-            logger.info(schema_date_fields["state"])
             #flattened_value = flatten(o['value'], flatten_delimiter="__")
-            value = o['value']
-            for df_iter in schema_date_fields["state"]:
-                if value[df_iter] is not None:
-                    dt_value = dateutil.parser.parse(value[df_iter])
-                    value[df_iter] = int(dt_value.strftime("%s"))
-            logger.info(value)
+            convert_dates(schema_date_fields["state"], o['value'])
+            # for df_iter in schema_date_fields["state"]:
+            #     if value[df_iter] is not None:
+            #         dt_value = dateutil.parser.parse(value[df_iter])
+            #         value[df_iter] = int(dt_value.strftime("%s"))
 
-
-            avroProducer.produce(topic=config["state_topic"], value=value, value_schema = value_schema)
+            topic_name = config["topic_prefix"] + "." + "state"
+            avroProducer.produce(topic=topic_name, value=o["value"], value_schema = value_schema)
             avroProducer.flush()
 
 
@@ -190,8 +209,7 @@ def persist_messages(messages, config):
                 stream = o['stream']
 
                 schema_date_fields[stream] = []
-                avsc_fields, schema_date_fields[stream] = _flatten_avsc(a=o['schema']["properties"],
-                                                                        flatten_delimiter="__")
+                avsc_fields, schema_date_fields[stream] = _avsc(a=o['schema']["properties"])
 
                 avsc_dict = {"namespace": "{0}.avro".format(stream),
                              "type": "record",

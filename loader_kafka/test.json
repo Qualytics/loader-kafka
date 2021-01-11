@@ -1,0 +1,13 @@
+[{
+    'name': 'stest',
+    'type': {
+        'type': 'record',
+        'name': 'stest',
+        'fields': ([{
+            'name': 'modified_since',
+            'type': ['null', 'long'],
+            'default': 0
+        }], ['modified_since'])
+    },
+    'default': {}
+}]
