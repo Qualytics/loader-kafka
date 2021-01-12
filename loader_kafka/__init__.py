@@ -120,6 +120,7 @@ def convert_dates(date_fields, record):
 
 
 def topic_check(config, topic):
+    logger.info("Verifying target topic existence.")
     kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
     if topic not in kafka_consumer.topics():
         logger.info(f"Creating topic {topic}")
@@ -134,24 +135,9 @@ def persist_messages(messages, config):
     schema_date_fields = {}
     avro_files = {}
 
-    logger.info("Verifying target topic existence.")
-
-    # kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
-    # if config['kafka_topic'] not in kafka_consumer.topics():
-    #     logger.info(f"Creating topic {config['kafka_topic']}")
-    #     admin_client = KafkaAdminClient(
-    #         bootstrap_servers=config['kafka_brokers'],
-    #         client_id='loader-kafka'
-    #     )
-    #     topic_list = [NewTopic(name=config['kafka_topic'], num_partitions=config.get('topic_partitions', 1), replication_factor=config.get('topic_replication', 1))]
-    #     admin_client.create_topics(new_topics=topic_list, validate_only=False)
-    #
-    # producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'], retries=3)
-    # unique_per_run = str(uuid.uuid1())
-
     avroProducer = AvroProducer({
     'bootstrap.servers': config['kafka_brokers'],
-    'schema.registry.url': config['schema_url'] ##ADD THIS TO THE CONFIG
+    'schema.registry.url': config['schema_url']
     })
 
 
@@ -187,26 +173,17 @@ def persist_messages(messages, config):
             # logger.info(inferred_schema)
 
             schema_date_fields["state"] = []
-            # logger.info("props")
-            # logger.info(props_schema)
+
             avsc_fields, schema_date_fields["state"] = _avsc(a=props_schema)
-            # logger.info("fields")
-            # logger.info(avsc_fields)
-            # logger.info(avsc_fields)
+
             avsc_dict = {"namespace": "{0}.avro".format("state"),
                          "type": "record",
                          "name": "{0}".format("state"),
                          "fields": list(avsc_fields)}
 
             value_schema = avro.loads(json.dumps(avsc_dict))
-            # logger.info(o["value"])
-            # logger.info(value_schema)
-            #flattened_value = flatten(o['value'], flatten_delimiter="__")
+
             convert_dates(schema_date_fields["state"], o['value'])
-            # for df_iter in schema_date_fields["state"]:
-            #     if value[df_iter] is not None:
-            #         dt_value = dateutil.parser.parse(value[df_iter])
-            #         value[df_iter] = int(dt_value.strftime("%s"))
 
             topic_name = config["topic_prefix"] + "." + "state"
             logger.info(topic_name)
@@ -232,15 +209,6 @@ def persist_messages(messages, config):
                              "fields": list(avsc_fields)}
 
                 value_schema = avro.loads(json.dumps(avsc_dict))
-
-
-        # message_bytes = bytes(message, encoding='utf-8')
-        # key_bytes = bytes((unique_per_run+"-"+str(idx)), encoding='utf-8')
-        # try:
-        #     producer.send(config['kafka_topic'], value=message_bytes, key=key_bytes)
-        # except Exception as err:
-        #     logger.error(f"Unable to send a record to kafka:",err)
-        #     raise err
 
 def emit_state(state):
     if state is not None:
