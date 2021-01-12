@@ -16,17 +16,6 @@ import loader_kafka.conversion as conversion
 
 logger = singer.get_logger()
 
-def flatten(d, parent_key='', flatten_delimiter='__'):
-    items = []
-    for k, v in d.items():
-        new_key = parent_key + flatten_delimiter + k if parent_key else k
-        if isinstance(v, collections.MutableMapping):
-            items.extend(flatten(v, new_key, flatten_delimiter=flatten_delimiter).items())
-        else:
-            items.append((new_key, str(v) if type(v) is list else v))
-    return dict(items)
-
-
 def _avsc(a):
     field_list = []
     dates_list = []
@@ -38,74 +27,58 @@ def _avsc(a):
                         "date-time": 0}
     for k, v in a.items():
         # figure out selected
-        if True or (v.get("selected") == "true" or v.get("selected") == True or v.get("inclusion") == "automatic" or parent_key)\
-                and v.get("inclusion") != "unsupported":
-            # logger.info(v)
-            #new_key = parent_key + flatten_delimiter + k if parent_key else k
-            new_key = k
-            type_list = ["null"]
-            default_val = None
-            type_dict = None
-            types = [v.get("type")] if isinstance(v.get("type"), str) else v.get("type")
-            # Check for date-time formatConvert & legacy "anyOf" and empty field types conversion to string
-            if v.get("type") is None:
-                if v.get("anyOf"):
-                    for ao_iter in v.get("anyOf"):
-                        if ao_iter.get("format") == "date-time":
-                            v["format"] = "date-time"
-                    types = ["null", "string"]
-                else:
-                    # In the case of undefined types in JSON any basic type is accepted in the AVSC
-                    types = ["null", "string", "boolean", "int", "float", "bytes"]
-
-            for t in types:
-                if t == "object" or t == "dict":
-                    # recurs_avsc, recurs_dates = _flatten_avsc(v["properties"],
-                    #                                           parent_key=new_key,
-                    #                                           flatten_delimiter=flatten_delimiter)
-                    # field_list.extend(recurs_avsc)
-                    # dates_list.extend(recurs_dates)
-                    # Set a default element of string
-                    props_list, recurs_dates = _avsc(v["properties"])
-                    type_dict = { "type": "record",
-                                 "name": "{0}".format(k),
-                                 "fields": list(props_list)
-                                 }
-                    dates_list = dates_list + recurs_dates
-                    # logger.info("type")
-                    # logger.info(v)
-                    # logger.info(type_dict)
-                    # type_list.append(new_dict)
-                    #type_list.append(type_switcher.get("string", "string"))
-                    #default_val = default_switcher.get("string", None)
-                    default_val = {}
-                elif t == "array":
-                    type_list.append(type_switcher.get("string", "string"))
-                    default_val = default_switcher.get("string", None)
-                elif t == "string" and v.get("format") == "date-time":
-                    dates_list.append(new_key)
-                    type_list.append(type_switcher.get("date-time", t))
-                    default_val = default_switcher.get("date-time", None)
-                elif t == "null":
-                    pass
-                else:
-                    type_list.append(type_switcher.get(t, t))
-                    default_val = default_switcher.get(t, None)
-
-            if len(types) > 2:
-                default_val = None
-
-            if t == "object" or t == "dict":
-                new_element = {"name": new_key, "type": type_dict, "default": default_val}
+        new_key = k
+        type_list = ["null"]
+        default_val = None
+        type_dict = None
+        types = [v.get("type")] if isinstance(v.get("type"), str) else v.get("type")
+        # Check for date-time formatConvert & legacy "anyOf" and empty field types conversion to string
+        if v.get("type") is None:
+            if v.get("anyOf"):
+                for ao_iter in v.get("anyOf"):
+                    if ao_iter.get("format") == "date-time":
+                        v["format"] = "date-time"
+                types = ["null", "string"]
             else:
-                new_element = {"name": new_key, "type": type_list, "default": default_val}
-            # Handle all disallowed avro characters in the field name with alias
-            pattern = r"[^A-Za-z0-9_]"
-            if re.search(pattern, k):
-                new_element["alias"] = new_key
-                new_element["name"] = re.sub(pattern, "_", k)
+                # In the case of undefined types in JSON any basic type is accepted in the AVSC
+                types = ["null", "string", "boolean", "int", "float", "bytes"]
 
-            field_list.append(new_element)
+        for t in types:
+            if t == "object" or t == "dict":
+                props_list, recurs_dates = _avsc(v["properties"])
+                type_dict = { "type": "record",
+                             "name": "{0}".format(k),
+                             "fields": list(props_list)
+                             }
+                dates_list = dates_list + recurs_dates
+                default_val = {}
+            elif t == "array":
+                type_list.append(type_switcher.get("string", "string"))
+                default_val = default_switcher.get("string", None)
+            elif t == "string" and v.get("format") == "date-time":
+                dates_list.append(new_key)
+                type_list.append(type_switcher.get("date-time", t))
+                default_val = default_switcher.get("date-time", None)
+            elif t == "null":
+                pass
+            else:
+                type_list.append(type_switcher.get(t, t))
+                default_val = default_switcher.get(t, None)
+
+        if len(types) > 2:
+            default_val = None
+
+        if t == "object" or t == "dict":
+            new_element = {"name": new_key, "type": type_dict, "default": default_val}
+        else:
+            new_element = {"name": new_key, "type": type_list, "default": default_val}
+        # Handle all disallowed avro characters in the field name with alias
+        pattern = r"[^A-Za-z0-9_]"
+        if re.search(pattern, k):
+            new_element["alias"] = new_key
+            new_element["name"] = re.sub(pattern, "_", k)
+
+        field_list.append(new_element)
 
     return list(field_list), list(dates_list)
 
@@ -145,32 +118,22 @@ def persist_messages(messages, config):
 
     for idx, message in enumerate(messages):
         o = json.loads(message)
-        logger.info(o)
+
         if 'RECORD' in message:
             if 'stream' not in o:
                 raise Exception("Line is missing required key 'stream': {}".format(line))
 
             # Convert date fields in the record
-
             convert_dates(schema_date_fields[o['stream']], o['record'])
 
-            #flattened_record = flatten(o['record'], flatten_delimiter="__")
             topic_name = config["topic_prefix"] + "." + o["stream"] + "." + "records"
             topic_check(config, topic_name)
-            logger.info(topic_name)
+
             avroProducer.produce(topic=topic_name, value=o['record'], value_schema = value_schema)
             avroProducer.flush()
 
         if 'STATE' in message:
-            logger.info("in state")
-            # logger.info(conversion.infer_schemas(o))
             props_schema = conversion.infer_schemas(o)["properties"]
-            # logger.info(props_schema)
-            # inferred_schema = {
-            #     'type': 'object',
-            #     'properties': props_schema
-            # }
-            # logger.info(inferred_schema)
 
             schema_date_fields["state"] = []
 
@@ -186,11 +149,10 @@ def persist_messages(messages, config):
             convert_dates(schema_date_fields["state"], o['value'])
 
             topic_name = config["topic_prefix"] + "." + "state"
-            logger.info(topic_name)
             topic_check(config, topic_name)
+
             avroProducer.produce(topic=topic_name, value=o["value"], value_schema = value_schema)
             avroProducer.flush()
-
 
             if o['type'] == 'STATE':
                 emit_state(o['value'])
