@@ -119,11 +119,23 @@ def convert_dates(date_fields, record):
             convert_dates(date_fields, v)
 
 
+def topic_check(config, topic):
+    kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
+    if topic not in kafka_consumer.topics():
+        logger.info(f"Creating topic {topic}")
+        admin_client = KafkaAdminClient(
+            bootstrap_servers=config['kafka_brokers'],
+            client_id='loader-kafka'
+        )
+        topic_list = [NewTopic(name=topic, num_partitions=config.get('topic_partitions', 1), replication_factor=config.get('topic_replication', 1))]
+        admin_client.create_topics(new_topics=topic_list, validate_only=False)
+
 def persist_messages(messages, config):
     schema_date_fields = {}
     avro_files = {}
 
     logger.info("Verifying target topic existence.")
+
     # kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
     # if config['kafka_topic'] not in kafka_consumer.topics():
     #     logger.info(f"Creating topic {config['kafka_topic']}")
@@ -158,6 +170,7 @@ def persist_messages(messages, config):
 
             #flattened_record = flatten(o['record'], flatten_delimiter="__")
             topic_name = config["topic_prefix"] + "." + o["stream"] + "." + "records"
+            topic_check(config, topic_name)
             logger.info(topic_name)
             avroProducer.produce(topic=topic_name, value=o['record'], value_schema = value_schema)
             avroProducer.flush()
@@ -196,6 +209,8 @@ def persist_messages(messages, config):
             #         value[df_iter] = int(dt_value.strftime("%s"))
 
             topic_name = config["topic_prefix"] + "." + "state"
+            logger.info(topic_name)
+            topic_check(config, topic_name)
             avroProducer.produce(topic=topic_name, value=o["value"], value_schema = value_schema)
             avroProducer.flush()
 
