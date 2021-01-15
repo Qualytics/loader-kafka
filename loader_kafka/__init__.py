@@ -2,11 +2,13 @@
 import io
 import json
 import sys
+import uuid
+
 import singer
 from singer import utils
 import re
 import dateutil
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 from confluent_kafka import avro
 from confluent_kafka.avro import AvroProducer
@@ -108,18 +110,23 @@ def create_topic(config, topic):
     else:
         logger.debug("Target topic already exists.")
 
-def derive_topic_name(config, stream_name):
+def derive_records_topic_name(config, stream_name):
     return config["topic_prefix"] + "." + stream_name + ".records"
+
+def derive_state_topic_name(config):
+    return config["topic_prefix"] + ".state"
 
 
 def persist_messages(messages, config):
     stream_to_date_fields = {}
     stream_to_schema = {}
+    unique_per_run = uuid.uuid4()
 
     avroProducer = AvroProducer({
     'bootstrap.servers': config['kafka_brokers'],
     'schema.registry.url': config['schema_registry_url']
     })
+    jsonProducer = KafkaProducer(bootstrap_servers=config['kafka_brokers'], retries=3)
 
     for idx, message in enumerate(messages):
         o = json.loads(message)
@@ -129,13 +136,13 @@ def persist_messages(messages, config):
             # Convert date fields in the record
             convert_dates_to_avro(stream_to_date_fields[stream_name], o['record'])
 
-            avroProducer.produce(topic=derive_topic_name(config, stream_name), value=o['record'], value_schema=stream_to_schema[stream_name])
+            avroProducer.produce(topic=derive_records_topic_name(config, stream_name), value=o['record'], value_schema=stream_to_schema[stream_name])
             avroProducer.flush()
 
         elif o['type'] == 'SCHEMA':
             stream_name = o['stream']
             # Creating the records topic here for efficiency
-            create_topic(config, derive_topic_name(config, stream_name))
+            create_topic(config, derive_records_topic_name(config, stream_name))
 
             avsc_fields, stream_to_date_fields[stream_name] = _avsc(a=o['schema']["properties"])
 
@@ -148,7 +155,14 @@ def persist_messages(messages, config):
 
         elif o['type'] == 'STATE':
             # State messages have no defined spec so we must simply record them as json blobs
-    
+            message_bytes = bytes(message, encoding='utf-8')
+            key_bytes = bytes((unique_per_run + "-" + str(message)), encoding='utf-8')
+            try:
+                jsonProducer.send(derive_state_topic_name(config), value=message_bytes, key=key_bytes)
+            except Exception as err:
+                logger.error(f"Unable to send a state message to kafka:", err)
+                raise err
+
 
 def main():
     args = utils.parse_args()
