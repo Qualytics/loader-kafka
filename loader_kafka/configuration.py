@@ -9,8 +9,8 @@ CONFIG_CONTRACT = Schema({
     Required('kafka_brokers'): str,
     Required('schema_registry_url'): str,
     Required('topic_prefix'): str,
-    Required('topic_partitions'): int,
-    Required('topic_replication'): int
+    Optional('topic_partitions'): int,
+    Optional('topic_replication'): int
 })
 
 class Config():

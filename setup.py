@@ -9,11 +9,9 @@ setup(
     url="https://github.com/Qualytics/loader-kafka",
     classifiers=["Programming Language :: Python :: 3 :: Only"],
     py_modules=["loader_kafka"],
-    install_requires=['singer-python==2.1.4',
-                      'kafka-python',
-                      'confluent-kafka',
-                      'requests',
-                      'avro-python3',
+    install_requires=['singer-python>=5.9.1',
+                      'kafka-python>=1.4.7',
+                      'confluent-kafka>=1.5.0',
                       'voluptuous>=0.10.5'
                       ],
     entry_points="""

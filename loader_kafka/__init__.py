@@ -6,15 +6,15 @@ import singer
 from singer import utils
 import re
 import dateutil
-from kafka import KafkaProducer, KafkaConsumer
+from kafka import KafkaConsumer
 from kafka.admin import KafkaAdminClient, NewTopic
 from confluent_kafka import avro
 from confluent_kafka.avro import AvroProducer
-import loader_kafka.conversion as conversion
 from loader_kafka.configuration import Config
 
 logger = singer.get_logger()
 
+# Convert a Singer schema to an AVRO schema
 def _avsc(a):
     field_list = []
     dates_list = []
@@ -94,8 +94,8 @@ def convert_dates_to_avro(date_fields, record):
             convert_dates_to_avro(date_fields, v)
 
 
-def topic_check(config, topic):
-    logger.info("Verifying target topic existence.")
+def create_topic(config, topic):
+    logger.debug("Checking for target topic existence.")
     kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
     if topic not in kafka_consumer.topics():
         logger.info(f"Creating topic {topic}")
@@ -105,10 +105,16 @@ def topic_check(config, topic):
         )
         topic_list = [NewTopic(name=topic, num_partitions=config.get('topic_partitions', 1), replication_factor=config.get('topic_replication', 1))]
         admin_client.create_topics(new_topics=topic_list, validate_only=False)
+    else:
+        logger.debug("Target topic already exists.")
+
+def derive_topic_name(config, stream_name):
+    return config["topic_prefix"] + "." + stream_name + ".records"
+
 
 def persist_messages(messages, config):
     stream_to_date_fields = {}
-    value_schema = {}
+    stream_to_schema = {}
 
     avroProducer = AvroProducer({
     'bootstrap.servers': config['kafka_brokers'],
@@ -118,75 +124,35 @@ def persist_messages(messages, config):
     for idx, message in enumerate(messages):
         o = json.loads(message)
 
-        if 'RECORD' in message:
-            if 'stream' not in o:
-                raise Exception("Message is missing required key 'stream': {}".format(message))
-
+        if o['type'] == 'RECORD':
+            stream_name = o['stream']
             # Convert date fields in the record
-            convert_dates_to_avro(stream_to_date_fields[o['stream']], o['record'])
+            convert_dates_to_avro(stream_to_date_fields[stream_name], o['record'])
 
-            topic_name = config["topic_prefix"] + "." + o["stream"] + "." + "records"
-            topic_check(config, topic_name)
-
-            avroProducer.produce(topic=topic_name, value=o['record'], value_schema = value_schema)
+            avroProducer.produce(topic=derive_topic_name(config, stream_name), value=o['record'], value_schema=stream_to_schema[stream_name])
             avroProducer.flush()
 
-        if 'STATE' in message:
-            props_schema = conversion.infer_schemas(o)["properties"]
+        elif o['type'] == 'SCHEMA':
+            stream_name = o['stream']
+            # Creating the records topic here for efficiency
+            create_topic(config, derive_topic_name(config, stream_name))
 
-            state_date_fields = []
+            avsc_fields, stream_to_date_fields[stream_name] = _avsc(a=o['schema']["properties"])
 
-            avsc_fields, state_date_fields = _avsc(a=props_schema)
-
-            avsc_dict = {"namespace": "{0}.avro".format("state"),
+            avsc_dict = {"namespace": "{0}.avro".format(stream_name),
                          "type": "record",
-                         "name": "{0}".format("state"),
+                         "name": "{0}".format(stream_name),
                          "fields": list(avsc_fields)}
 
-            value_schema = avro.loads(json.dumps(avsc_dict))
+            stream_to_schema[stream_name] = avro.loads(json.dumps(avsc_dict))
 
-            convert_dates_to_avro(state_date_fields, o['value'])
-
-            topic_name = config["topic_prefix"] + "." + "state"
-            topic_check(config, topic_name)
-
-            avroProducer.produce(topic=topic_name, value=o["value"], value_schema = value_schema)
-            avroProducer.flush()
-
-            if o['type'] == 'STATE':
-                emit_state(o['value'])
-        if 'SCHEMA' in message:
-            if o['type'] == 'SCHEMA':
-                if 'stream' not in o:
-                    raise Exception("Line is missing required key 'stream': {}".format(line))
-                stream = o['stream']
-
-                stream_to_date_fields[stream] = []
-                avsc_fields, stream_to_date_fields[stream] = _avsc(a=o['schema']["properties"])
-
-                avsc_dict = {"namespace": "{0}.avro".format(stream),
-                             "type": "record",
-                             "name": "{0}".format(stream),
-                             "fields": list(avsc_fields)}
-
-                value_schema = avro.loads(json.dumps(avsc_dict))
-
-def emit_state(state):
-    if state is not None:
-        line = json.dumps(state)
-        logger.debug('Emitting state {}'.format(line))
-        sys.stdout.write("{}\n".format(line))
-        sys.stdout.flush()
+        elif o['type'] == 'STATE':
+            # State messages have no defined spec so we must simply record them as json blobs
+    
 
 def main():
     args = utils.parse_args()
     config = Config.validate(args.config)
-
-    if args.config:
-        with open(args.config) as input_json:
-            config = json.load(input_json)
-
-
 
     input_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     persist_messages(input_messages, config)
