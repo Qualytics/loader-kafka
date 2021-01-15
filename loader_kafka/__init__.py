@@ -120,7 +120,8 @@ def derive_state_topic_name(config):
 def persist_messages(messages, config):
     stream_to_date_fields = {}
     stream_to_schema = {}
-    unique_per_run = uuid.uuid4()
+    unique_per_run = str(uuid.uuid1())
+    state_msg_counter = 0
 
     avroProducer = AvroProducer({
     'bootstrap.servers': config['kafka_brokers'],
@@ -156,7 +157,8 @@ def persist_messages(messages, config):
         elif o['type'] == 'STATE':
             # State messages have no defined spec so we must simply record them as json blobs
             message_bytes = bytes(message, encoding='utf-8')
-            key_bytes = bytes((unique_per_run + "-" + str(message)), encoding='utf-8')
+            key_bytes = bytes((unique_per_run + "-" + state_msg_counter), encoding='utf-8')
+            state_msg_counter += 1
             try:
                 jsonProducer.send(derive_state_topic_name(config), value=message_bytes, key=key_bytes)
             except Exception as err:
