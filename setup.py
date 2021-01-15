@@ -12,7 +12,9 @@ setup(
     install_requires=['singer-python>=5.9.1',
                       'kafka-python>=1.4.7',
                       'confluent-kafka>=1.5.0',
-                      'voluptuous>=0.10.5'
+                      'voluptuous>=0.10.5',
+                      'requests>-2.25.1',
+                      'avro-python3>=1.10.1'
                       ],
     entry_points="""
     [console_scripts]

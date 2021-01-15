@@ -83,6 +83,7 @@ def _avsc(a):
 
     return list(field_list), list(dates_list)
 
+
 # Convert any date field to the number of days since the epoch (per Avro spec)
 #
 # date_fields holds the keys (of any depth) that map to date values
@@ -96,15 +97,10 @@ def convert_dates_to_avro(date_fields, record):
             convert_dates_to_avro(date_fields, v)
 
 
-def create_topic(config, topic):
+def create_topic_as_needed(config, kafka_consumer, admin_client, topic):
     logger.debug("Checking for target topic existence.")
-    kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
     if topic not in kafka_consumer.topics():
         logger.info(f"Creating topic {topic}")
-        admin_client = KafkaAdminClient(
-            bootstrap_servers=config['kafka_brokers'],
-            client_id='loader-kafka'
-        )
         topic_list = [NewTopic(name=topic, num_partitions=config.get('topic_partitions', 1), replication_factor=config.get('topic_replication', 1))]
         admin_client.create_topics(new_topics=topic_list, validate_only=False)
     else:
@@ -117,17 +113,11 @@ def derive_state_topic_name(config):
     return config["topic_prefix"] + ".state"
 
 
-def persist_messages(messages, config):
+def persist_messages(config, avro_producer, json_producer, kafka_consumer, admin_client, messages):
     stream_to_date_fields = {}
     stream_to_schema = {}
     unique_per_run = str(uuid.uuid1())
     state_msg_counter = 0
-
-    avroProducer = AvroProducer({
-    'bootstrap.servers': config['kafka_brokers'],
-    'schema.registry.url': config['schema_registry_url']
-    })
-    jsonProducer = KafkaProducer(bootstrap_servers=config['kafka_brokers'], retries=3)
 
     for idx, message in enumerate(messages):
         o = json.loads(message)
@@ -136,14 +126,12 @@ def persist_messages(messages, config):
             stream_name = o['stream']
             # Convert date fields in the record
             convert_dates_to_avro(stream_to_date_fields[stream_name], o['record'])
-
-            avroProducer.produce(topic=derive_records_topic_name(config, stream_name), value=o['record'], value_schema=stream_to_schema[stream_name])
-            avroProducer.flush()
+            avro_producer.produce(topic=derive_records_topic_name(config, stream_name), value=o['record'], value_schema=stream_to_schema[stream_name])
 
         elif o['type'] == 'SCHEMA':
             stream_name = o['stream']
             # Creating the records topic here for efficiency
-            create_topic(config, derive_records_topic_name(config, stream_name))
+            create_topic_as_needed(config, kafka_consumer, admin_client, derive_records_topic_name(config, stream_name))
 
             avsc_fields, stream_to_date_fields[stream_name] = _avsc(a=o['schema']["properties"])
 
@@ -157,21 +145,38 @@ def persist_messages(messages, config):
         elif o['type'] == 'STATE':
             # State messages have no defined spec so we must simply record them as json blobs
             message_bytes = bytes(message, encoding='utf-8')
-            key_bytes = bytes((unique_per_run + "-" + state_msg_counter), encoding='utf-8')
+            key_bytes = bytes((unique_per_run + "-" + str(state_msg_counter)), encoding='utf-8')
             state_msg_counter += 1
             try:
-                jsonProducer.send(derive_state_topic_name(config), value=message_bytes, key=key_bytes)
+                json_producer.send(derive_state_topic_name(config), value=message_bytes, key=key_bytes)
+                json_producer.flush()
             except Exception as err:
                 logger.error(f"Unable to send a state message to kafka:", err)
                 raise err
 
+    avro_producer.flush()
 
 def main():
     args = utils.parse_args()
     config = Config.validate(args.config)
 
+    avro_producer = AvroProducer({
+        'bootstrap.servers': config['kafka_brokers'],
+        'schema.registry.url': config['schema_registry_url']
+    })
+    json_producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'], retries=3)
+    kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
+    admin_client = KafkaAdminClient(
+        bootstrap_servers=config['kafka_brokers'],
+        client_id='loader-kafka'
+    )
+
     input_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    persist_messages(input_messages, config)
+    persist_messages(config, avro_producer, json_producer, kafka_consumer, admin_client, input_messages)
+    json_producer.close()
+    kafka_consumer.close()
+    admin_client.close()
+
     logger.debug("Exiting normally")
 
 
