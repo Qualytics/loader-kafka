@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-import argparse
 import io
 import json
 import sys
 import singer
-import uuid
+from singer import utils
 import re
-import collections
 import dateutil
 from kafka import KafkaProducer, KafkaConsumer
 from kafka.admin import KafkaAdminClient, NewTopic
 from confluent_kafka import avro
 from confluent_kafka.avro import AvroProducer
 import loader_kafka.conversion as conversion
+from loader_kafka.configuration import Config
 
 logger = singer.get_logger()
 
@@ -82,14 +81,17 @@ def _avsc(a):
 
     return list(field_list), list(dates_list)
 
-def convert_dates(date_fields, record):
+# Convert any date field to the number of days since the epoch (per Avro spec)
+#
+# date_fields holds the keys (of any depth) that map to date values
+def convert_dates_to_avro(date_fields, record):
     for df_iter in date_fields:
         if df_iter in record and record[df_iter] is not None:
             dt_value = dateutil.parser.parse(record[df_iter])
             record[df_iter] = int(dt_value.strftime("%s"))
     for k,v in record.items():
         if type(v) == dict:
-            convert_dates(date_fields, v)
+            convert_dates_to_avro(date_fields, v)
 
 
 def topic_check(config, topic):
@@ -105,26 +107,23 @@ def topic_check(config, topic):
         admin_client.create_topics(new_topics=topic_list, validate_only=False)
 
 def persist_messages(messages, config):
-    schema_date_fields = {}
-    avro_files = {}
+    stream_to_date_fields = {}
+    value_schema = {}
 
     avroProducer = AvroProducer({
     'bootstrap.servers': config['kafka_brokers'],
-    'schema.registry.url': config['schema_url']
+    'schema.registry.url': config['schema_registry_url']
     })
-
-
-    value_schema = {}
 
     for idx, message in enumerate(messages):
         o = json.loads(message)
 
         if 'RECORD' in message:
             if 'stream' not in o:
-                raise Exception("Line is missing required key 'stream': {}".format(line))
+                raise Exception("Message is missing required key 'stream': {}".format(message))
 
             # Convert date fields in the record
-            convert_dates(schema_date_fields[o['stream']], o['record'])
+            convert_dates_to_avro(stream_to_date_fields[o['stream']], o['record'])
 
             topic_name = config["topic_prefix"] + "." + o["stream"] + "." + "records"
             topic_check(config, topic_name)
@@ -135,9 +134,9 @@ def persist_messages(messages, config):
         if 'STATE' in message:
             props_schema = conversion.infer_schemas(o)["properties"]
 
-            schema_date_fields["state"] = []
+            state_date_fields = []
 
-            avsc_fields, schema_date_fields["state"] = _avsc(a=props_schema)
+            avsc_fields, state_date_fields = _avsc(a=props_schema)
 
             avsc_dict = {"namespace": "{0}.avro".format("state"),
                          "type": "record",
@@ -146,7 +145,7 @@ def persist_messages(messages, config):
 
             value_schema = avro.loads(json.dumps(avsc_dict))
 
-            convert_dates(schema_date_fields["state"], o['value'])
+            convert_dates_to_avro(state_date_fields, o['value'])
 
             topic_name = config["topic_prefix"] + "." + "state"
             topic_check(config, topic_name)
@@ -162,8 +161,8 @@ def persist_messages(messages, config):
                     raise Exception("Line is missing required key 'stream': {}".format(line))
                 stream = o['stream']
 
-                schema_date_fields[stream] = []
-                avsc_fields, schema_date_fields[stream] = _avsc(a=o['schema']["properties"])
+                stream_to_date_fields[stream] = []
+                avsc_fields, stream_to_date_fields[stream] = _avsc(a=o['schema']["properties"])
 
                 avsc_dict = {"namespace": "{0}.avro".format(stream),
                              "type": "record",
@@ -180,15 +179,15 @@ def emit_state(state):
         sys.stdout.flush()
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', help='Config file')
-    args = parser.parse_args()
+    args = utils.parse_args()
+    config = Config.validate(args.config)
 
     if args.config:
         with open(args.config) as input_json:
             config = json.load(input_json)
-    else:
-        config = {}
+
+
+
     input_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     persist_messages(input_messages, config)
     logger.debug("Exiting normally")
