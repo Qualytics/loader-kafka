@@ -79,6 +79,10 @@ def _avsc(a):
             new_element["alias"] = new_key
             new_element["name"] = re.sub(pattern, "_", k)
 
+        # Pass along any schema metadata
+        if v.get("additionalProperties"):
+            new_element["additionalProperties"] = v.get("additionalProperties")
+
         field_list.append(new_element)
 
     return list(field_list), list(dates_list)
