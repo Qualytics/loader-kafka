@@ -112,7 +112,6 @@ def create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, to
             logger.debug("Target topic already exists.")
 
 def derive_records_topic_name_registry(config, stream_name):
-    logger.info("records registry")
     return config["topic_prefix"] + "." + stream_name + ".records"
 
 def derive_records_topic_name_raw(config):
@@ -178,9 +177,9 @@ def persist_messages_raw(config, json_producer, kafka_consumer, admin_client, me
             stream_name = o['stream']
 
             # Creating the records topic here for efficiency
-            topics = [derive_state_topic_name(config), derive_schema_topic_name(config), derive_records_topic_name_raw(config)]
-            create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics)
             topic = derive_schema_topic_name(config)
+            topics = [derive_state_topic_name(config), topic, derive_records_topic_name_raw(config)]
+            create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics)
 
         elif o['type'] == "RECORD":
             topic = derive_records_topic_name_raw(config)
