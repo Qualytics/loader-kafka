@@ -100,13 +100,8 @@ def convert_dates_to_avro(date_fields, record):
         if type(v) == dict:
             convert_dates_to_avro(date_fields, v)
 
-def create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, include_schema):
+def create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics):
     logger.debug("Checking for target topic existence.")
-
-    topics = [derive_records_topic_name_registry(config, stream_name), derive_state_topic_name(config)]
-
-    if include_schema:
-        topics.append(derive_schema_topic_name(config))
 
     for topic in topics:
         if topic not in kafka_consumer.topics():
@@ -117,6 +112,7 @@ def create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, in
             logger.debug("Target topic already exists.")
 
 def derive_records_topic_name_registry(config, stream_name):
+    logger.info("records registry")
     return config["topic_prefix"] + "." + stream_name + ".records"
 
 def derive_records_topic_name_raw(config):
@@ -146,7 +142,8 @@ def persist_messages_registry(config, avro_producer, json_producer, kafka_consum
         elif o['type'] == 'SCHEMA':
             stream_name = o['stream']
             # Creating the records topic here for efficiency
-            create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, False)
+            topics = [derive_state_topic_name(config), derive_records_topic_name_registry(config, stream_name)]
+            create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics)
 
             avsc_fields, stream_to_date_fields[stream_name] = _avsc(a=o['schema']["properties"])
 
@@ -179,8 +176,10 @@ def persist_messages_raw(config, json_producer, kafka_consumer, admin_client, me
         o = json.loads(message)
         if o['type'] == 'SCHEMA':
             stream_name = o['stream']
+
             # Creating the records topic here for efficiency
-            create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, True)
+            topics = [derive_state_topic_name(config), derive_schema_topic_name(config), derive_records_topic_name_raw(config)]
+            create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics)
             topic = derive_schema_topic_name(config)
 
         elif o['type'] == "RECORD":
@@ -201,7 +200,7 @@ def persist_messages_raw(config, json_producer, kafka_consumer, admin_client, me
     json_producer.flush()
 
 def main():
-    args = utils.parse_args([])  #sophie added
+    args = utils.parse_args([]) #added argument to avoid TypeError: parse_args() missing 1 required positional argument: 'required_config_keys'
     config = Config.validate(args.config)
 
     json_producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'], retries=3)
