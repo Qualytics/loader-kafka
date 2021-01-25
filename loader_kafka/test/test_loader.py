@@ -52,3 +52,7 @@ class TestFormatHandler(unittest.TestCase):
             assert len(json_producer.method_calls) == 2
             # Did we invoke admin client to create the kafka topic as expected?
             assert len(admin_client.method_calls) == 1
+    
+    def test_schema_registry_url_logic(self):
+        config = Config.validate(COMPLETE_TEST_SPEC)
+        test_filename_uri = './loader_kafka/test/tap_output.json'

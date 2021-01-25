@@ -111,17 +111,14 @@ def create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, to
         else:
             logger.debug("Target topic already exists.")
 
-def derive_records_topic_name_registry(config, stream_name):
+def derive_records_topic_name(config, stream_name):
     return config["topic_prefix"] + "." + stream_name + ".records"
-
-def derive_records_topic_name_raw(config):
-    return config["topic_prefix"] + ".records"
 
 def derive_state_topic_name(config):
     return config["topic_prefix"] + ".state"
 
-def derive_schema_topic_name(config):
-    return config["topic_prefix"] + ".schema"
+def derive_schema_topic_name(config, stream_name): 
+    return config["topic_prefix"] + "." + stream_name + ".schema"
 
 def persist_messages_registry(config, avro_producer, json_producer, kafka_consumer, admin_client, messages):
     stream_to_date_fields = {}
@@ -136,12 +133,12 @@ def persist_messages_registry(config, avro_producer, json_producer, kafka_consum
             stream_name = o['stream']
             # Convert date fields in the record
             convert_dates_to_avro(stream_to_date_fields[stream_name], o['record'])
-            avro_producer.produce(topic=derive_records_topic_name_registry(config, stream_name), value=o['record'], value_schema=stream_to_schema[stream_name])
+            avro_producer.produce(topic=derive_records_topic_name(config, stream_name), value=o['record'], value_schema=stream_to_schema[stream_name])
 
         elif o['type'] == 'SCHEMA':
             stream_name = o['stream']
             # Creating the records topic here for efficiency
-            topics = [derive_state_topic_name(config), derive_records_topic_name_registry(config, stream_name)]
+            topics = [derive_state_topic_name(config), derive_records_topic_name(config, stream_name)]
             create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics)
 
             avsc_fields, stream_to_date_fields[stream_name] = _avsc(a=o['schema']["properties"])
@@ -177,12 +174,12 @@ def persist_messages_raw(config, json_producer, kafka_consumer, admin_client, me
             stream_name = o['stream']
 
             # Creating the records topic here for efficiency
-            topic = derive_schema_topic_name(config)
-            topics = [derive_state_topic_name(config), topic, derive_records_topic_name_raw(config)]
+            topic = derive_schema_topic_name(config, stream_name)
+            topics = [derive_state_topic_name(config), topic, derive_records_topic_name(config)]
             create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics)
 
         elif o['type'] == "RECORD":
-            topic = derive_records_topic_name_raw(config)
+            topic = derive_records_topic_name(config, stream_name)
 
         elif o['type'] == "STATE":
             topic = derive_state_topic_name(config)
