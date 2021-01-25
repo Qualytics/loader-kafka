@@ -52,7 +52,19 @@ class TestFormatHandler(unittest.TestCase):
             assert len(json_producer.method_calls) == 2
             # Did we invoke admin client to create the kafka topic as expected?
             assert len(admin_client.method_calls) == 1
-    
+
     def test_schema_registry_url_logic(self):
         config = Config.validate(COMPLETE_TEST_SPEC)
         test_filename_uri = './loader_kafka/test/tap_output.json'
+        with open(test_filename_uri, 'r') as messages:
+            avro_producer = MagicMock()
+            json_producer = MagicMock()
+            class MockTopics:
+                def topics(self):
+                    return ["pre-existing-topic"]
+            kafka_consumer = MagicMock(spec=MockTopics)
+            admin_client = MagicMock()
+            persist_messages(config, avro_producer, json_producer, kafka_consumer, admin_client, messages)
+            expected_topics = ["qualytics.topics.orders.records","qualytics.topics.state"]
+            for topic in expected_topics:
+                assert(topic in kafka_consumer.topics())
