@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock
 
-from loader_kafka import Config, persist_messages, convert_dates_to_avro
+from loader_kafka import Config, persist_messages_raw, persist_messages_registry, convert_dates_to_avro
 
 COMPLETE_TEST_SPEC = {
     "kafka_brokers": "http://localhost:4242",
@@ -45,7 +45,7 @@ class TestFormatHandler(unittest.TestCase):
                     return ["pre-existing-topic"]
             kafka_consumer = MagicMock(spec=MockTopics)
             admin_client = MagicMock()
-            persist_messages(config, avro_producer, json_producer, kafka_consumer, admin_client, messages)
+            persist_messages_registry(config, avro_producer, json_producer, kafka_consumer, admin_client, messages)
             # 1999 records published plus one call to flush
             assert len(avro_producer.method_calls) == 2000
             # One state message published plus a call to flush
@@ -64,7 +64,8 @@ class TestFormatHandler(unittest.TestCase):
                     return ["pre-existing-topic"]
             kafka_consumer = MagicMock(spec=MockTopics)
             admin_client = MagicMock()
-            persist_messages(config, avro_producer, json_producer, kafka_consumer, admin_client, messages)
+            persist_messages_registry(config, avro_producer, json_producer, kafka_consumer, admin_client, messages)
             expected_topics = ["qualytics.topics.orders.records","qualytics.topics.state"]
             for topic in expected_topics:
                 assert(topic in kafka_consumer.topics())
+            assert("qualytics.topics.orders.schema" in kafka_consumer.topics())
