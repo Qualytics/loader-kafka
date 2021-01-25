@@ -175,7 +175,7 @@ def persist_messages_raw(config, json_producer, kafka_consumer, admin_client, me
 
             # Creating the records topic here for efficiency
             topic = derive_schema_topic_name(config, stream_name)
-            topics = [derive_state_topic_name(config), topic, derive_records_topic_name(config)]
+            topics = [derive_state_topic_name(config), topic, derive_records_topic_name(config, stream_name)]
             create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics)
 
         elif o['type'] == "RECORD":
