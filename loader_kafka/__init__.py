@@ -117,7 +117,7 @@ def derive_records_topic_name(config, stream_name):
 def derive_state_topic_name(config):
     return config["topic_prefix"] + ".state"
 
-def derive_schema_topic_name(config, stream_name): 
+def derive_schema_topic_name(config, stream_name):
     return config["topic_prefix"] + "." + stream_name + ".schema"
 
 def persist_messages_registry(config, avro_producer, json_producer, kafka_consumer, admin_client, messages):

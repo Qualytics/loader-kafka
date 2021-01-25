@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
+import singer
 
 from loader_kafka import Config, persist_messages_raw, persist_messages_registry, convert_dates_to_avro
 
@@ -15,6 +16,13 @@ PARTIAL_TEST_SPEC = {
     "schema_registry_url": "http://registry:3333",
     "topic_prefix": "qualytics.topics"
 }
+
+RAW_TEST_SPEC =  {
+    "kafka_brokers": "http://localhost:4242",
+    "topic_prefix": "qualytics.topics",
+}
+
+LOGGER = singer.get_logger()
 
 
 class TestFormatHandler(unittest.TestCase):
@@ -60,12 +68,40 @@ class TestFormatHandler(unittest.TestCase):
             avro_producer = MagicMock()
             json_producer = MagicMock()
             class MockTopics:
+                def __init__(self):
+                    LOGGER.info("started")
+                    self.topics = []
                 def topics(self):
-                    return ["pre-existing-topic"]
+                    return self.topics
+                def create_topics(self, new_topics, validate_only):
+                    for topic in new_topics:
+                        self.topics.append(topic.name)
             kafka_consumer = MagicMock(spec=MockTopics)
-            admin_client = MagicMock()
+            admin_client = MockTopics()
             persist_messages_registry(config, avro_producer, json_producer, kafka_consumer, admin_client, messages)
             expected_topics = ["qualytics.topics.orders.records","qualytics.topics.state"]
+            actual_topics = admin_client.topics
             for topic in expected_topics:
-                assert(topic in kafka_consumer.topics())
-            assert("qualytics.topics.orders.schema" in kafka_consumer.topics())
+                assert(topic in actual_topics)
+
+    def test_schema_registry_no_url_logic(self):
+        config = Config.validate(RAW_TEST_SPEC)
+        test_filename_uri = './loader_kafka/test/tap_output.json'
+        with open(test_filename_uri, 'r') as messages:
+            avro_producer = MagicMock()
+            json_producer = MagicMock()
+            class MockTopics:
+                def __init__(self):
+                    self.topics = []
+                def topics(self):
+                    return self.topics
+                def create_topics(self, new_topics, validate_only):
+                    for topic in new_topics:
+                        self.topics.append(topic.name)
+            kafka_consumer = MagicMock()
+            admin_client = MockTopics()
+            persist_messages_raw(config, json_producer, kafka_consumer, admin_client, messages)
+            expected_topics = ["qualytics.topics.orders.records","qualytics.topics.orders.schema","qualytics.topics.state"]
+            actual_topics = admin_client.topics
+            for topic in expected_topics:
+                assert(topic in actual_topics)
