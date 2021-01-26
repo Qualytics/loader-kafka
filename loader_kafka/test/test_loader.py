@@ -59,7 +59,7 @@ class TestFormatHandler(unittest.TestCase):
             # One state message published plus a call to flush
             assert len(json_producer.method_calls) == 2
             # Did we invoke admin client to create the kafka topic as expected?
-            assert len(admin_client.method_calls) == 1
+            assert len(admin_client.method_calls) == 2
 
     def test_schema_registry_url_logic(self):
         config = Config.validate(COMPLETE_TEST_SPEC)
@@ -69,7 +69,6 @@ class TestFormatHandler(unittest.TestCase):
             json_producer = MagicMock()
             class MockTopics:
                 def __init__(self):
-                    LOGGER.info("started")
                     self.topics = []
                 def topics(self):
                     return self.topics
