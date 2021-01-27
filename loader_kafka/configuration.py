@@ -7,8 +7,8 @@ LOGGER = logging.getLogger(__name__)
 
 CONFIG_CONTRACT = Schema({
     Required('kafka_brokers'): str,
-    Required('schema_registry_url'): str,
     Required('topic_prefix'): str,
+    Optional('schema_registry_url'): str,
     Optional('topic_partitions'): int,
     Optional('topic_replication'): int
 })

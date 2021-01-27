@@ -100,15 +100,16 @@ def convert_dates_to_avro(date_fields, record):
         if type(v) == dict:
             convert_dates_to_avro(date_fields, v)
 
-
-def create_topic_as_needed(config, kafka_consumer, admin_client, topic):
+def create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics):
     logger.debug("Checking for target topic existence.")
-    if topic not in kafka_consumer.topics():
-        logger.info(f"Creating topic {topic}")
-        topic_list = [NewTopic(name=topic, num_partitions=config.get('topic_partitions', 1), replication_factor=config.get('topic_replication', 1))]
-        admin_client.create_topics(new_topics=topic_list, validate_only=False)
-    else:
-        logger.debug("Target topic already exists.")
+
+    for topic in topics:
+        if topic not in kafka_consumer.topics():
+            logger.info(f"Creating topic {topic}")
+            topic_list = [NewTopic(name=topic, num_partitions=config.get('topic_partitions', 1), replication_factor=config.get('topic_replication', 1))]
+            admin_client.create_topics(new_topics=topic_list, validate_only=False)
+        else:
+            logger.debug("Target topic already exists.")
 
 def derive_records_topic_name(config, stream_name):
     return config["topic_prefix"] + "." + stream_name + ".records"
@@ -116,8 +117,10 @@ def derive_records_topic_name(config, stream_name):
 def derive_state_topic_name(config):
     return config["topic_prefix"] + ".state"
 
+def derive_schema_topic_name(config, stream_name):
+    return config["topic_prefix"] + "." + stream_name + ".schema"
 
-def persist_messages(config, avro_producer, json_producer, kafka_consumer, admin_client, messages):
+def persist_messages_registry(config, avro_producer, json_producer, kafka_consumer, admin_client, messages):
     stream_to_date_fields = {}
     stream_to_schema = {}
     unique_per_run = str(uuid.uuid1())
@@ -135,7 +138,8 @@ def persist_messages(config, avro_producer, json_producer, kafka_consumer, admin
         elif o['type'] == 'SCHEMA':
             stream_name = o['stream']
             # Creating the records topic here for efficiency
-            create_topic_as_needed(config, kafka_consumer, admin_client, derive_records_topic_name(config, stream_name))
+            topics = [derive_state_topic_name(config), derive_records_topic_name(config, stream_name)]
+            create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics)
 
             avsc_fields, stream_to_date_fields[stream_name] = _avsc(a=o['schema']["properties"])
 
@@ -160,14 +164,41 @@ def persist_messages(config, avro_producer, json_producer, kafka_consumer, admin
 
     avro_producer.flush()
 
+
+def persist_messages_raw(config, json_producer, kafka_consumer, admin_client, messages):
+    unique_per_run = str(uuid.uuid1())
+
+    for idx, message in enumerate(messages):
+        o = json.loads(message)
+        if o['type'] == 'SCHEMA':
+            stream_name = o['stream']
+
+            # Creating the records topic here for efficiency
+            topic = derive_schema_topic_name(config, stream_name)
+            topics = [derive_state_topic_name(config), topic, derive_records_topic_name(config, stream_name)]
+            create_topic_as_needed(config, kafka_consumer, admin_client, stream_name, topics)
+
+        elif o['type'] == "RECORD":
+            topic = derive_records_topic_name(config, stream_name)
+
+        elif o['type'] == "STATE":
+            topic = derive_state_topic_name(config)
+
+        message_bytes = bytes(message, encoding='utf-8')
+        key_bytes = bytes((unique_per_run+"-"+str(idx)), encoding='utf-8')
+
+        try:
+            json_producer.send(topic, value=message_bytes, key=key_bytes)
+        except Exception as err:
+            logger.error(f"Unable to send a record to kafka:",err)
+            raise err
+
+    json_producer.flush()
+
 def main():
-    args = utils.parse_args()
+    args = utils.parse_args([]) #added argument to avoid TypeError: parse_args() missing 1 required positional argument: 'required_config_keys'
     config = Config.validate(args.config)
 
-    avro_producer = AvroProducer({
-        'bootstrap.servers': config['kafka_brokers'],
-        'schema.registry.url': config['schema_registry_url']
-    })
     json_producer = KafkaProducer(bootstrap_servers=config['kafka_brokers'], retries=3)
     kafka_consumer = KafkaConsumer(bootstrap_servers=config['kafka_brokers'], client_id='loader-kafka')
     admin_client = KafkaAdminClient(
@@ -176,7 +207,18 @@ def main():
     )
 
     input_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    persist_messages(config, avro_producer, json_producer, kafka_consumer, admin_client, input_messages)
+
+    if 'schema_registry_url' in config and config['schema_registry_url']:
+
+        avro_producer = AvroProducer({
+            'bootstrap.servers': config['kafka_brokers'],
+            'schema.registry.url': config['schema_registry_url']
+        })
+
+        persist_messages_registry(config, avro_producer, json_producer, kafka_consumer, admin_client, input_messages)
+    else:
+        persist_messages_raw(config, json_producer, kafka_consumer, admin_client, input_messages)
+
     json_producer.close()
     kafka_consumer.close()
     admin_client.close()
